@@ -21,6 +21,7 @@ let HandLandmarker;
 let stream;
 let lastVideoTime = -1;
 let handX = WIDTH / 2;
+let handY = HEIGHT - 145 + ROBOT_HEIGHT / 2;
 let handLandmarks = null;
 let pointerActive = false;
 let game;
@@ -114,7 +115,7 @@ function drawRobot(x, y) { const combo = game.combo; const body = game.gameOver 
 function drawRocket(x, y) { const cx = x + 30; const ry = y + ROBOT_HEIGHT + 10; ctx.save(); ctx.fillStyle = '#9aa9ad'; ctx.fillRect(cx - 10, ry, 20, 30); ctx.fillStyle = '#d34f4f'; ctx.beginPath(); ctx.moveTo(cx, ry - 8); ctx.lineTo(cx - 8, ry); ctx.lineTo(cx + 8, ry); ctx.fill(); ctx.fillStyle = '#71d9ee'; ctx.beginPath(); ctx.arc(cx, ry + 10, 5, 0, Math.PI * 2); ctx.fill(); for (let i = 0; i < 3; i++) { ctx.strokeStyle = i < 2 ? '#ffbd33' : '#ff5f45'; ctx.lineWidth = 4; ctx.beginPath(); ctx.ellipse(cx + i * 4 - 4, ry + 35 + (15 + Math.sin(game.frame * .2) * 5) * (i + 1) * .3, 8 - i * 2, (15 + Math.sin(game.frame * .2) * 5) * (1 - i * .2), 0, 0, Math.PI * 2); ctx.stroke(); } ctx.restore(); }
 function drawHud() { const timeLeft = Math.max(0, GAME_DURATION - (performance.now() - game.started) / 1000); ctx.fillStyle = 'rgba(5, 12, 18, .82)'; ctx.fillRect(16, 16, 280, 72); ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.strokeRect(16, 16, 280, 72); ctx.fillStyle = '#fff0a6'; ctx.font = '700 20px Space Mono'; ctx.textAlign = 'left'; ctx.fillText(`Score: $${game.score}`, 28, 43); ctx.fillStyle = '#ff6b5f'; ctx.font = '16px Space Mono'; ctx.fillText(`Lives: ${'O'.repeat(game.lives)}${'x'.repeat(3 - game.lives)}`, 28, 69); ctx.fillStyle = '#c8f238'; ctx.fillText(`Combo x${game.combo}`, 165, 69); ctx.fillStyle = '#22333c'; ctx.fillRect(WIDTH - 225, 20, 200, 14); ctx.fillStyle = timeLeft > 10 ? '#5dff87' : timeLeft > 5 ? '#ffd737' : '#ff6b5f'; ctx.fillRect(WIDTH - 225, 20, 200 * timeLeft / GAME_DURATION, 14); ctx.strokeStyle = '#dbe7e2'; ctx.strokeRect(WIDTH - 225, 20, 200, 14); ctx.fillStyle = '#fff'; ctx.font = '13px Space Mono'; ctx.fillText(`${Math.ceil(timeLeft)}s`, WIDTH - 65, 33); }
 function drawEnd() { if (!game.gameOver && !game.won) return; ctx.fillStyle = 'rgba(5, 11, 18, .78)'; ctx.fillRect(0, 0, WIDTH, HEIGHT); ctx.textAlign = 'center'; ctx.fillStyle = game.gameOver ? '#ff6b5f' : '#c8f238'; ctx.font = '800 58px Barlow Condensed'; ctx.fillText(game.gameOver ? 'GAME OVER' : 'YOU WIN!', WIDTH / 2, HEIGHT / 2 - 42); ctx.fillStyle = '#fff'; ctx.font = '22px Space Mono'; ctx.fillText(`Final score: $${game.score}`, WIDTH / 2, HEIGHT / 2 + 8); ctx.fillStyle = '#9aa9ad'; ctx.font = '14px Space Mono'; ctx.fillText('Press Restart to play again', WIDTH / 2, HEIGHT / 2 + 45); }
-function draw() { drawCamera(); drawHandTrace(); for (const item of game.dollars) drawDollar(item); for (const bomb of game.bombs) drawBomb(bomb); for (const particle of game.particles) { ctx.globalAlpha = particle.life / 40; ctx.fillStyle = particle.fill; ctx.beginPath(); ctx.arc(particle.x, particle.y, Math.max(2, particle.life / 8), 0, Math.PI * 2); ctx.fill(); } ctx.globalAlpha = 1; for (const item of game.floating) { ctx.fillStyle = item.fill; ctx.font = '700 16px Space Mono'; ctx.fillText(item.value, item.x, item.y); } const robotX = clamp(handX - ROBOT_WIDTH / 2, 0, WIDTH - ROBOT_WIDTH); const robotY = HEIGHT - 145; game.update(robotX, robotY); drawRocket(robotX, robotY); drawRobot(robotX, robotY); drawHud(); drawEnd(); requestAnimationFrame(draw); }
+function draw() { drawCamera(); drawHandTrace(); for (const item of game.dollars) drawDollar(item); for (const bomb of game.bombs) drawBomb(bomb); for (const particle of game.particles) { ctx.globalAlpha = particle.life / 40; ctx.fillStyle = particle.fill; ctx.beginPath(); ctx.arc(particle.x, particle.y, Math.max(2, particle.life / 8), 0, Math.PI * 2); ctx.fill(); } ctx.globalAlpha = 1; for (const item of game.floating) { ctx.fillStyle = item.fill; ctx.font = '700 16px Space Mono'; ctx.fillText(item.value, item.x, item.y); } const robotX = clamp(handX - ROBOT_WIDTH / 2, 0, WIDTH - ROBOT_WIDTH); const robotY = clamp(handY - ROBOT_HEIGHT / 2, 55, HEIGHT - ROBOT_HEIGHT - 50); game.update(robotX, robotY); drawRocket(robotX, robotY); drawRobot(robotX, robotY); drawHud(); drawEnd(); requestAnimationFrame(draw); }
 
 async function start() {
   startButton.disabled = true;
@@ -160,17 +161,32 @@ async function start() {
 }
 function detectHand() {
   if (handLandmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
-    lastVideoTime = video.currentTime;
-    const result = handLandmarker.detectForVideo(video, performance.now());
-    handLandmarks = result.landmarks?.[0] || null;
-    if (handLandmarks?.[8]) {
-      handX = (1 - handLandmarks[8].x) * WIDTH;
-      status.textContent = 'Hand tracking live';
+    try {
+      lastVideoTime = video.currentTime;
+      const result = handLandmarker.detectForVideo(video, performance.now());
+      handLandmarks = result.landmarks?.[0] || null;
+      if (handLandmarks?.[8]) {
+        const scale = Math.max(WIDTH / video.videoWidth, HEIGHT / video.videoHeight);
+        const imageWidth = video.videoWidth * scale;
+        const imageHeight = video.videoHeight * scale;
+        const offsetX = (WIDTH - imageWidth) / 2;
+        const offsetY = (HEIGHT - imageHeight) / 2;
+        handX = WIDTH - (handLandmarks[8].x * imageWidth + offsetX);
+        handY = handLandmarks[8].y * imageHeight + offsetY;
+        status.textContent = 'Hand tracking live';
+        status.dataset.state = 'live';
+      } else {
+        status.textContent = 'Show your hand';
+      }
+    } catch (error) {
+      console.warn('Hand detection frame failed; retrying.', error);
+      handLandmarks = null;
+      status.textContent = 'Retrying hand tracking';
     }
   }
   requestAnimationFrame(detectHand);
 }
-canvas.addEventListener('pointermove', event => { const rect = canvas.getBoundingClientRect(); handX = ((event.clientX - rect.left) / rect.width) * WIDTH; pointerActive = true; });
+canvas.addEventListener('pointermove', event => { const rect = canvas.getBoundingClientRect(); handX = ((event.clientX - rect.left) / rect.width) * WIDTH; handY = ((event.clientY - rect.top) / rect.height) * HEIGHT; pointerActive = true; });
 startButton.addEventListener('click', start);
 restartButton.addEventListener('click', () => { if (game) game.reset(); });
 window.addEventListener('keydown', event => { if (event.key.toLowerCase() === 'q' && stream) { stream.getTracks().forEach(track => track.stop()); stageMessage.classList.remove('hidden'); messageText.textContent = 'Camera paused. Start again to play.'; status.textContent = 'Camera paused'; status.dataset.state = 'idle'; } });
