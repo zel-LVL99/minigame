@@ -1,5 +1,3 @@
-import { FilesetResolver, HandLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm';
-
 const WIDTH = 960;
 const HEIGHT = 540;
 const ROBOT_WIDTH = 60;
@@ -18,6 +16,8 @@ const messageText = document.querySelector('#message-text');
 const status = document.querySelector('#status');
 
 let handLandmarker;
+let FilesetResolver;
+let HandLandmarker;
 let stream;
 let lastVideoTime = -1;
 let handX = WIDTH / 2;
@@ -84,7 +84,48 @@ function drawHud() { const timeLeft = Math.max(0, GAME_DURATION - (performance.n
 function drawEnd() { if (!game.gameOver && !game.won) return; ctx.fillStyle = 'rgba(5, 11, 18, .78)'; ctx.fillRect(0, 0, WIDTH, HEIGHT); ctx.textAlign = 'center'; ctx.fillStyle = game.gameOver ? '#ff6b5f' : '#c8f238'; ctx.font = '800 58px Barlow Condensed'; ctx.fillText(game.gameOver ? 'GAME OVER' : 'YOU WIN!', WIDTH / 2, HEIGHT / 2 - 42); ctx.fillStyle = '#fff'; ctx.font = '22px Space Mono'; ctx.fillText(`Final score: $${game.score}`, WIDTH / 2, HEIGHT / 2 + 8); ctx.fillStyle = '#9aa9ad'; ctx.font = '14px Space Mono'; ctx.fillText('Press Restart to play again', WIDTH / 2, HEIGHT / 2 + 45); }
 function draw() { drawCamera(); for (const item of game.dollars) drawDollar(item); for (const bomb of game.bombs) drawBomb(bomb); for (const particle of game.particles) { ctx.globalAlpha = particle.life / 40; ctx.fillStyle = particle.fill; ctx.beginPath(); ctx.arc(particle.x, particle.y, Math.max(2, particle.life / 8), 0, Math.PI * 2); ctx.fill(); } ctx.globalAlpha = 1; for (const item of game.floating) { ctx.fillStyle = item.fill; ctx.font = '700 16px Space Mono'; ctx.fillText(item.value, item.x, item.y); } const robotX = clamp(handX - ROBOT_WIDTH / 2, 0, WIDTH - ROBOT_WIDTH); const robotY = HEIGHT - 145; game.update(robotX, robotY); drawRocket(robotX, robotY); drawRobot(robotX, robotY); drawHud(); drawEnd(); requestAnimationFrame(draw); }
 
-async function start() { try { startButton.disabled = true; messageText.textContent = 'Loading hand tracking...'; const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm'); handLandmarker = await HandLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' }, runningMode: 'VIDEO', numHands: 1, minHandDetectionConfidence: .7, minHandPresenceConfidence: .7, minTrackingConfidence: .7 }); stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }); video.srcObject = stream; await video.play(); stageMessage.classList.add('hidden'); status.textContent = 'Hand control live'; status.dataset.state = 'live'; game = new Game(); requestAnimationFrame(draw); } catch (error) { console.error(error); startButton.disabled = false; messageText.textContent = 'Camera access is needed. Check browser permissions and try again.'; status.textContent = 'Camera unavailable'; status.dataset.state = 'error'; } }
+async function start() {
+  startButton.disabled = true;
+  messageText.textContent = 'Starting game...';
+  stageMessage.classList.add('hidden');
+  status.textContent = 'Mouse mode';
+  status.dataset.state = 'live';
+  game = new Game();
+  requestAnimationFrame(draw);
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+  } catch (error) {
+    console.warn('Camera unavailable; using mouse/touch controls.', error);
+    status.textContent = 'Mouse mode';
+  }
+
+  try {
+    ({ FilesetResolver, HandLandmarker } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs'));
+    const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm');
+    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+      runningMode: 'VIDEO', numHands: 1,
+      minHandDetectionConfidence: .7, minHandPresenceConfidence: .7,
+      minTrackingConfidence: .7
+    });
+  } catch (error) {
+    console.warn('Hand tracking unavailable; using mouse/touch controls.', error);
+    handLandmarker = null;
+    if (!stream) status.textContent = 'Mouse mode';
+  }
+
+  if (stream && handLandmarker) {
+    status.textContent = 'Hand control live';
+    status.dataset.state = 'live';
+  }
+  detectHand();
+}
 function detectHand() { if (!handLandmarker || video.readyState < 2 || video.currentTime === lastVideoTime) return; lastVideoTime = video.currentTime; const result = handLandmarker.detectForVideo(video, performance.now()); if (result.landmarks?.[0]?.[8]) handX = (1 - result.landmarks[0][8].x) * WIDTH; requestAnimationFrame(detectHand); }
 canvas.addEventListener('pointermove', event => { const rect = canvas.getBoundingClientRect(); handX = ((event.clientX - rect.left) / rect.width) * WIDTH; pointerActive = true; });
 startButton.addEventListener('click', () => { start(); detectHand(); });
