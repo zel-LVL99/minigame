@@ -5,6 +5,10 @@ const ROBOT_HEIGHT = 80;
 const ITEM_SIZE = 30;
 const GAME_DURATION = 30;
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const VISION_CDN_URLS = [
+  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs',
+  'https://unpkg.com/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs'
+];
 
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
@@ -25,6 +29,30 @@ let handY = HEIGHT - 145 + ROBOT_HEIGHT / 2;
 let handLandmarks = null;
 let pointerActive = false;
 let game;
+
+async function loadHandTracker() {
+  let lastError;
+  for (const url of VISION_CDN_URLS) {
+    try {
+      ({ FilesetResolver, HandLandmarker } = await import(url));
+      const vision = await FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm'
+      );
+      return HandLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+        runningMode: 'VIDEO',
+        numHands: 1,
+        minHandDetectionConfidence: .7,
+        minHandPresenceConfidence: .7,
+        minTrackingConfidence: .7
+      });
+    } catch (error) {
+      lastError = error;
+      console.warn(`Hand tracker CDN failed: ${url}`, error);
+    }
+  }
+  throw lastError || new Error('No hand tracker CDN was available.');
+}
 
 const random = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -121,7 +149,7 @@ async function start() {
   startButton.disabled = true;
   messageText.textContent = 'Starting game...';
   stageMessage.classList.add('hidden');
-  status.textContent = 'Mouse mode';
+  status.textContent = 'Starting camera';
   status.dataset.state = 'live';
   game = new Game();
   requestAnimationFrame(draw);
@@ -135,26 +163,21 @@ async function start() {
     await video.play();
   } catch (error) {
     console.warn('Camera unavailable; using mouse/touch controls.', error);
-    status.textContent = 'Mouse mode';
+    status.textContent = 'Camera ready; hand tracking unavailable';
+    status.dataset.state = 'error';
   }
 
   try {
-    ({ FilesetResolver, HandLandmarker } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs'));
-    const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm');
-    handLandmarker = await HandLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
-      runningMode: 'VIDEO', numHands: 1,
-      minHandDetectionConfidence: .7, minHandPresenceConfidence: .7,
-      minTrackingConfidence: .7
-    });
+    handLandmarker = await loadHandTracker();
   } catch (error) {
     console.warn('Hand tracking unavailable; using mouse/touch controls.', error);
     handLandmarker = null;
-    if (!stream) status.textContent = 'Mouse mode';
+    status.textContent = stream ? 'Camera ready; hand tracking unavailable' : 'Mouse mode';
+    status.dataset.state = 'error';
   }
 
   if (stream && handLandmarker) {
-    status.textContent = 'Hand control live';
+    status.textContent = 'Show your hand';
     status.dataset.state = 'live';
   }
   detectHand();
